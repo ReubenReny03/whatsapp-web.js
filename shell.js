@@ -6,13 +6,16 @@
  * and then drop you into Node REPL with `client` in its context. 
  */
 
-const repl = require('repl');
 
 const { Client, LocalAuth } = require('./index');
 
 const client = new Client({
-    puppeteer: { headless: false }, 
-    authStrategy: new LocalAuth()
+    authStrategy: new LocalAuth(),
+    puppeteer: {
+        headless: false,
+        args: [ '--no-sandbox', '--disable-gpu', ],
+    },
+    webVersionCache: { type: 'remote', remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html', }
 });
 
 console.log('Initializing...');
