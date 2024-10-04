@@ -1,0 +1,149 @@
+const express = require('express');
+const { Client, LocalAuth } = require('whatsapp-web.js');
+const cors = require('cors');
+const fs = require('fs');
+const https = require('https');
+
+const app = express();
+
+// Enable JSON body parsing middleware
+app.use(express.json());
+
+// Configure CORS to allow all origins
+app.use(cors({
+    origin: '*', // Allow all origins
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'Accept', 'Origin', 'X-Requested-With'],
+    credentials: true, // Allow credentials such as cookies
+}));
+
+// Handle OPTIONS preflight requests for all routes
+app.options('*', (req, res) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Authorization, Content-Type, Accept, Origin, X-Requested-With');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.sendStatus(204); // Respond with 204 No Content for OPTIONS requests
+});
+
+// Initialize the WhatsApp client
+const client = new Client({
+    puppeteer: {
+        headless: true, // Enable headless mode
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    },
+    authStrategy: new LocalAuth()
+});
+
+client.initialize();
+
+// Log and handle the QR code event
+client.on('qr', (qr) => {
+    console.log('Please scan the QR code on the browser.');
+    console.log('QR RECEIVED', qr);
+});
+
+// Log successful authentication
+client.on('authenticated', () => {
+    console.log('Authenticated successfully.');
+});
+
+// Log when the client is ready
+client.on('ready', () => {
+    console.log('Client is ready!');
+});
+
+// List of valid secret codes
+const validSecretCodes = [
+    'REUBEN#RENUKASUPERCODE',
+    'CODE#123456789',
+    'MYSECRET#987654321'
+];
+
+// Health-check endpoint
+app.get('/health-check', (req, res) => {
+    res.send('Server is running!');
+});
+
+// Create a new WhatsApp group
+app.post('/create-group', async (req, res) => {
+    console.log('Received request body:', req.body);
+    const { groupName, phoneNumbers, SecretCode } = req.body;
+
+    // Validate SecretCode
+    if (!SecretCode || !validSecretCodes.includes(SecretCode)) {
+        return res.status(403).json({ error: 'Sorry, Code Problem. Please provide a valid SecretCode.' });
+    }
+
+    // Validate input parameters
+    if (!groupName || !Array.isArray(phoneNumbers) || phoneNumbers.length === 0) {
+        return res.status(400).json({ error: 'Group name and a list of phone numbers are required.' });
+    }
+
+    try {
+        // Validate each phone number before adding to the group
+        const validNumbers = [];
+        for (const number of phoneNumbers) {
+            const formattedNumber = number.includes('@c.us') ? number : `${number}@c.us`;
+            const contact = await client.getContactById(formattedNumber);
+            if (contact.isWAContact) {
+                validNumbers.push(formattedNumber);
+                console.log(`Validated: ${formattedNumber} is a valid WhatsApp contact.`);
+            } else {
+                console.warn(`Skipping: ${formattedNumber} is not a valid WhatsApp contact.`);
+            }
+        }
+
+        // Create the group with the validated phone numbers
+        const group = await client.createGroup(groupName, validNumbers);
+        console.log(`Group created successfully: ${group.gid.user}`);
+
+        res.status(200).json({
+            message: 'Group created successfully!',
+            groupName: groupName,
+            groupId: group.gid.user,
+            addedParticipants: validNumbers
+        });
+
+    } catch (error) {
+        console.error('An error occurred while creating the group or adding participants:', error);
+        res.status(500).json({ error: 'Failed to create group. Please try again.' });
+    }
+});
+
+// Check if WhatsApp client is ready
+app.get('/status', (req, res) => {
+    if (client.info && client.info.pushname) {
+        return res.status(200).json({ status: 'Client is ready!', pushName: client.info.pushname });
+    }
+    res.status(503).json({ status: 'Client is not ready. Please scan the QR code if required.' });
+});
+
+// Graceful exit and cleanup on shell exit
+client.on('disconnected', () => {
+    console.log('Client was logged out or disconnected.');
+    process.exit();
+});
+
+// SSL Certificate options
+const httpsOptions = {
+    key: fs.readFileSync('/etc/letsencrypt/live/api.reubenreny.live/privkey.pem'),
+    cert: fs.readFileSync('/etc/letsencrypt/live/api.reubenreny.live/cert.pem'),
+    ca: fs.readFileSync('/etc/letsencrypt/live/api.reuben
+
+// Create the HTTPS server
+const httpsServer = https.createServer(httpsOptions, app);
+httpsServer.listen(443, () => {
+    console.log('HTTPS Server running on port 443');
+});
+
+// Optional: HTTP server for redirecting all traffic to HTTPS
+const http = require('http');
+const httpServer = http.createServer((req, res) => {
+    res.writeHead(301, { "Location": `https://${req.headers.host}${req.url}` });
+    res.end();
+});
+
+httpServer.listen(80, () => {
+    console.log('HTTP Server running on port 80 and redirecting all traffic to HTTPS');
+});

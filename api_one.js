@@ -8,8 +8,16 @@ app.use(express.json()); // Middleware to parse JSON bodies
 app.use(cors());
 
 // Create a new WhatsApp client with local authentication
+// const client = new Client({
+//     puppeteer: { headless: false },
+//     authStrategy: new LocalAuth()
+// });
+
 const client = new Client({
-    puppeteer: { headless: false },
+    puppeteer: {
+        headless: true, // Enable headless mode
+        args: ['--no-sandbox', '--disable-setuid-sandbox'], // Recommended arguments for running Puppeteer on a server
+    },
     authStrategy: new LocalAuth()
 });
 
